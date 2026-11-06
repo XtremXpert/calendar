@@ -4,7 +4,7 @@
 # Copyright 2022 Tecnativa - Pedro M. Baeza
 # Copyright 2024 Tecnativa - Carolina Fernandez
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import patch
 
 from dateutil.relativedelta import relativedelta
@@ -657,6 +657,55 @@ class BackendCaseMisc(BackendCaseBase):
                 ],
             },
         )
+
+    def test_max_advance_booking_days_caps_slots(self):
+        """No suggested start goes beyond the configured horizon."""
+        # Frozen now is 2021-02-26 09:00 UTC, so a 4-day horizon ends on
+        # 2021-03-02 09:00 UTC.
+        self.rbt.max_advance_booking_days = 4
+        rb = self.env["resource.booking"].create(
+            {
+                "partner_ids": [(4, self.partner.id)],
+                "type_id": self.rbt.id,
+            }
+        )
+        slots = rb._get_available_slots(
+            datetime(2021, 2, 28).replace(tzinfo=UTC),
+            datetime(2021, 3, 31).replace(tzinfo=UTC),
+        )
+        starts = [start for day in slots.values() for start in day]
+        self.assertTrue(starts)
+        horizon = datetime(2021, 2, 26, 9).replace(tzinfo=UTC) + timedelta(days=4)
+        self.assertLessEqual(max(starts), horizon)
+        # The 8th of March is far beyond the horizon, and must not appear.
+        self.assertNotIn(date(2021, 3, 8), slots)
+
+    def test_max_advance_booking_days_zero_keeps_full_range(self):
+        """The default zero keeps the previous unbounded behaviour."""
+        self.assertEqual(self.rbt.max_advance_booking_days, 0)
+        rb = self.env["resource.booking"].create(
+            {
+                "partner_ids": [(4, self.partner.id)],
+                "type_id": self.rbt.id,
+            }
+        )
+        slots = rb._get_available_slots(
+            datetime(2021, 2, 28).replace(tzinfo=UTC),
+            datetime(2021, 3, 31).replace(tzinfo=UTC),
+        )
+        self.assertIn(date(2021, 3, 8), slots)
+
+    def test_max_advance_booking_days_constraint(self):
+        """A negative horizon is rejected by the SQL constraint."""
+        from psycopg2 import IntegrityError
+
+        with (
+            self.assertRaises(IntegrityError),
+            mute_logger("odoo.sql_db"),
+            self.env.cr.savepoint(),
+        ):
+            self.rbt.write({"max_advance_booking_days": -1})
+            self.env.flush_all()
 
     @mute_logger("odoo.models.unlink")
     def test_location(self):

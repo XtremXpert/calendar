@@ -14,6 +14,10 @@ class ResourceBookingType(models.Model):
         "CHECK (duration > 0)",
         "Duration must be positive.",
     )
+    _max_advance_booking_days_nonnegative = models.Constraint(
+        "CHECK (max_advance_booking_days >= 0)",
+        "Maximum advance booking days must be zero or positive.",
+    )
 
     active = fields.Boolean(default=True)
     alarm_ids = fields.Many2many(
@@ -63,6 +67,13 @@ class ResourceBookingType(models.Model):
         required=True,
         default=0.5,  # 30 minutes
         help=("Interval offered to start each resource booking."),
+    )
+    max_advance_booking_days = fields.Integer(
+        default=0,
+        help=(
+            "Limit suggested booking starts to within this many days from now. "
+            "Set to 0 to allow the full availability calendar range."
+        ),
     )
     location = fields.Char()
     videocall_location = fields.Char(string="Meeting URL")
